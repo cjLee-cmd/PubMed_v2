@@ -360,10 +360,7 @@ async function search() {
       return html;
     };
 
-    // XSS 방지를 위한 간단 escape
-    function escapeHtml(str){
-      return String(str).replace(/[&<>"]/g, s=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[s]));
-    }
+  // (로컬 정의 제거됨) 전역 escapeHtml 유틸 사용
 
     resultsEl.innerHTML = buildTable(resultList) + '<div class="results-hint">Rows: '+resultList.length+'</div>';
 
@@ -382,6 +379,11 @@ async function search() {
     console.error(error);
     resultsEl.innerHTML = `<p style="color: red;">❌ 검색 중 오류가 발생했습니다.</p>`;
   }
+}
+
+// 전역 XSS 방지 유틸 (표 렌더 + AI 분석 공용)
+function escapeHtml(str){
+  return String(str).replace(/[&<>"]/g, s=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[s]));
 }
 
 // Abstract 모달 생성/표시
