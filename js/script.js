@@ -3,6 +3,39 @@
 const keywordContainer = document.getElementById('keyword-container');
 const summary = document.getElementById('summary');
 
+// 초기 UI 이벤트 바인딩 (헤더 햄버거 메뉴 등)
+document.addEventListener('DOMContentLoaded', () => {
+    // Hamburger menu toggle
+    const hamburgerBtn = document.getElementById('hamburger-btn');
+    const menu = document.getElementById('hamburger-menu');
+    if (hamburgerBtn && menu) {
+      hamburgerBtn.addEventListener('click', () => {
+        const expanded = hamburgerBtn.getAttribute('aria-expanded') === 'true';
+        hamburgerBtn.setAttribute('aria-expanded', String(!expanded));
+        menu.classList.toggle('show');
+      });
+      // 메뉴 외부 클릭 닫기
+      document.addEventListener('click', (e) => {
+        if (!menu.contains(e.target) && !hamburgerBtn.contains(e.target)) {
+          if (menu.classList.contains('show')) {
+            menu.classList.remove('show');
+            hamburgerBtn.setAttribute('aria-expanded', 'false');
+          }
+        }
+      });
+      // 메뉴 항목 클릭 시 (향후 라우팅용 placeholder)
+      menu.addEventListener('click', (e) => {
+        const link = e.target.closest('a[data-nav]');
+        if (!link) return;
+        e.preventDefault();
+        const dest = link.getAttribute('data-nav');
+        alert(dest + ' 페이지는 준비중입니다.');
+        menu.classList.remove('show');
+        hamburgerBtn.setAttribute('aria-expanded', 'false');
+      });
+    }
+  }); // END DOMContentLoaded (header/menu init)
+
 // 복사/붙여넣기 유틸리티 함수들
 async function copyToClipboard(text) {
   try {
