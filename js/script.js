@@ -488,7 +488,7 @@ function openAbstractModal(data){
       aiBtn.disabled = true;
       aiBox.style.display='block';
       const statusEl = aiBox.querySelector('.ai-status');
-      if(statusEl) statusEl.textContent='⏳ Gemini 분석 중...';
+  if(statusEl) statusEl.textContent='⏳ 분석중...';
       try {
         const analysis = await analyzeAbstractWithGemini(abstract||'');
         if(statusEl) statusEl.textContent='✅ 분석 완료';
