@@ -15,15 +15,15 @@
         <h1>acu-literature</h1>
       </div>
       <div class="header-right">
-        <nav class="top-nav">
+        <div class="user-info" id="user-info"><!-- 사용자 정보 표시 --></div>
+        <button class="logout-btn" id="logout-btn" onclick="logout()" style="display: none;">로그아웃</button>
+        <nav class="top-nav subtle">
           <button class="hamburger" id="hamburger-btn" aria-label="메뉴 열기" aria-expanded="false">☰</button>
           <ul class="menu" id="hamburger-menu" aria-label="주요 메뉴">
             <li><a href="#" data-nav="doc-solution">문서생성 솔루션 (준비중)</a></li>
             <li><a href="#" data-nav="reg-rule">규정 솔루션 (준비중)</a></li>
           </ul>
         </nav>
-        <div class="user-info" id="user-info"><!-- 사용자 정보 표시 --></div>
-        <button class="logout-btn" id="logout-btn" onclick="logout()" style="display: none;">로그아웃</button>
       </div>
     </div>
   </header>
