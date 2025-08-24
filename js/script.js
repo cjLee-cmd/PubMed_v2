@@ -390,7 +390,7 @@ function ensureAbstractModal(){
   const modal = document.createElement('div');
   modal.id='abstract-modal';
   modal.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;align-items:center;justify-content:center;padding:1rem;';
-  modal.innerHTML = '<div class="abstract-modal-content" style="background:#fff;max-width:800px;width:100%;max-height:80vh;overflow:auto;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.3);padding:1.25rem;">\n  <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;">\n    <h3 style="margin:0;font-size:1.05rem;">Abstract</h3>\n    <button data-close style="background:#8b00ff;color:#fff;border:none;border-radius:4px;padding:0.4rem 0.8rem;cursor:pointer;">닫기</button>\n  </div>\n  <pre id="abstract-full-text" style="white-space:pre-wrap;font-size:0.85rem;line-height:1.4;margin-top:0.75rem;"></pre>\n</div>';
+  modal.innerHTML = '<div class="abstract-modal-content" style="background:#fff;max-width:880px;width:100%;max-height:85vh;overflow:auto;border-radius:10px;box-shadow:0 4px 24px rgba(0,0,0,0.35);padding:1.25rem;">\n  <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;">\n    <h3 style="margin:0;font-size:1.05rem;">Abstract</h3>\n    <div style="display:flex;gap:.5rem;align-items:center;">\n      <button id="ai-analyze-btn" style="background:#4b0082;color:#fff;border:none;border-radius:4px;padding:0.4rem 0.7rem;cursor:pointer;font-size:0.7rem;">AI 분석</button>\n      <button data-close style="background:#8b00ff;color:#fff;border:none;border-radius:4px;padding:0.4rem 0.8rem;cursor:pointer;">닫기</button>\n    </div>\n  </div>\n  <div id="ai-analysis-box" class="ai-analysis-box" style="display:none; margin-top:.75rem; border:1px solid #e2d9f7; background:#f8f5ff; padding:.75rem; border-radius:6px; font-size:.78rem; line-height:1.35; position:relative;">\n    <div class="ai-status" style="font-weight:600; color:#4b0082; margin-bottom:.4rem;">🔍 AI 분석 준비됨</div>\n    <div class="ai-content" id="ai-analysis-content"></div>\n  </div>\n  <pre id="abstract-full-text" style="white-space:pre-wrap;font-size:0.85rem;line-height:1.4;margin-top:0.9rem;"></pre>\n</div>';
   document.body.appendChild(modal);
   modal.addEventListener('click', (e)=>{ if(e.target===modal || e.target.hasAttribute('data-close')) closeAbstractModal(); });
 }
@@ -400,10 +400,95 @@ function openAbstractModal(text, pmid){
   const pre = document.getElementById('abstract-full-text');
   if(pre) pre.textContent = (pmid?`PMID: ${pmid}\n\n`:'') + text;
   modal.style.display='flex';
+  // AI 섹션 초기화
+  const aiBox = document.getElementById('ai-analysis-box');
+  const aiBtn = document.getElementById('ai-analyze-btn');
+  const aiContent = document.getElementById('ai-analysis-content');
+  if(aiBox && aiBtn && aiContent){
+    aiBox.style.display='none';
+    aiContent.textContent='';
+    aiBtn.disabled = false;
+    aiBtn.onclick = async ()=>{
+      aiBtn.disabled = true;
+      aiBox.style.display='block';
+      const statusEl = aiBox.querySelector('.ai-status');
+      if(statusEl) statusEl.textContent='⏳ OpenAI 분석 중...';
+      try {
+        const analysis = await analyzeAbstractWithOpenAI(text);
+        if(statusEl) statusEl.textContent='✅ 분석 완료';
+        aiContent.innerHTML = renderAIAnalysis(analysis);
+      } catch(err){
+        console.error('AI 분석 실패', err);
+        if(statusEl) statusEl.textContent='❌ 분석 실패';
+        aiContent.textContent = (err && err.message) ? err.message : '분석 중 오류 발생';
+      } finally {
+        aiBtn.disabled = false; aiBtn.textContent='재분석';
+      }
+    };
+  }
 }
 function closeAbstractModal(){
   const modal = document.getElementById('abstract-modal');
   if(modal) modal.style.display='none';
+}
+
+// ====== OpenAI 기반 초록 분석 ======
+const OPENAI_PROMPT_PREFIX = `다음 문헌 초록을 분석하여, 약물 이상사례 보고서에 필요한 4가지 핵심 정보를 JSON 으로 출력해 줘. \n요구 필드 키는 반드시 아래 영문 키 사용: patient_info, reporter_info, adverse_event_info, suspected_drug_info. \n각 키 값은 원문에서 찾은 핵심 구문을 한국어 요약 1~3문장으로 기술. 없으면 'N/A' 기재.\n초록:\n`;
+
+async function analyzeAbstractWithOpenAI(abstractText){
+  if(!CONFIG.OPENAI_API_KEY || CONFIG.OPENAI_API_KEY.startsWith('YOUR_')){
+    throw new Error('OpenAI API Key 미설정 (config.js 수정 필요)');
+  }
+  const body = {
+    model: CONFIG.OPENAI_MODEL || 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: 'You are an assistant that extracts structured pharmacovigilance information.'},
+      { role: 'user', content: OPENAI_PROMPT_PREFIX + abstractText }
+    ],
+    temperature: 0.1,
+    response_format: { type: 'json_schema', json_schema: {
+      name: 'pv_extract',
+      schema: {
+        type: 'object',
+        properties: {
+          patient_info: { type:'string' },
+          reporter_info: { type:'string' },
+          adverse_event_info: { type:'string' },
+          suspected_drug_info: { type:'string' }
+        },
+        required: ['patient_info','reporter_info','adverse_event_info','suspected_drug_info']
+      }
+    }}
+  };
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'Authorization': 'Bearer ' + CONFIG.OPENAI_API_KEY
+    },
+    body: JSON.stringify(body)
+  });
+  if(!res.ok){
+    const t = await res.text();
+    throw new Error('OpenAI 응답 오류: '+res.status+' '+t.slice(0,200));
+  }
+  const data = await res.json();
+  let content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  if(!content) throw new Error('OpenAI 응답 파싱 실패');
+  let parsed;
+  try { parsed = JSON.parse(content); } catch(e){ throw new Error('JSON 파싱 실패: '+e.message); }
+  return parsed;
+}
+
+function renderAIAnalysis(obj){
+  const safe = (s)=>!s||typeof s!=='string' ? 'N/A' : escapeHtml(s);
+  return `<div class="ai-grid">`
+    + `<div><strong>① 환자 정보</strong><br>${safe(obj.patient_info)}</div>`
+    + `<div><strong>② 보고자 정보</strong><br>${safe(obj.reporter_info)}</div>`
+    + `<div><strong>③ 이상사례 정보</strong><br>${safe(obj.adverse_event_info)}</div>`
+    + `<div><strong>④ 의심 의약품 정보</strong><br>${safe(obj.suspected_drug_info)}</div>`
+    + `</div>`
+    + `<div style="margin-top:.5rem;font-size:.65rem;opacity:.7;">AI 자동 추출 결과이며 원문 임상적 검증 필요함.</div>`;
 }
 
 // 키워드와 날짜 필터를 조합한 검색 쿼리 생성

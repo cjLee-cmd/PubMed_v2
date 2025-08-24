@@ -302,6 +302,9 @@ button.search-btn {
 .abs-more-btn { background:#8b00ff; color:#fff; border:none; border-radius:4px; padding:2px 6px; font-size:0.65rem; cursor:pointer; }
 .abs-more-btn:hover { background:#6f00c9; }
 .results-hint { margin-top:6px; font-size:0.7rem; opacity:0.7; }
+#abstract-modal .ai-analysis-box .ai-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:.6rem; }
+#abstract-modal .ai-analysis-box .ai-grid > div { background:#ffffff; border:1px solid #e2d9f7; padding:.5rem .6rem; border-radius:5px; box-shadow:0 1px 2px rgba(0,0,0,0.04); font-size:.72rem; line-height:1.25; }
+#abstract-modal .ai-analysis-box strong { color:#4b0082; }
 
 #abstract-modal::-webkit-scrollbar { width:10px; }
 #abstract-modal::-webkit-scrollbar-thumb { background:#8b00ff; border-radius:5px; }
