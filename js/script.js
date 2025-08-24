@@ -3,6 +3,39 @@
 const keywordContainer = document.getElementById('keyword-container');
 const summary = document.getElementById('summary');
 
+// 초기 UI 이벤트 바인딩 (헤더 햄버거 메뉴 등)
+document.addEventListener('DOMContentLoaded', () => {
+    // Hamburger menu toggle
+    const hamburgerBtn = document.getElementById('hamburger-btn');
+    const menu = document.getElementById('hamburger-menu');
+    if (hamburgerBtn && menu) {
+      hamburgerBtn.addEventListener('click', () => {
+        const expanded = hamburgerBtn.getAttribute('aria-expanded') === 'true';
+        hamburgerBtn.setAttribute('aria-expanded', String(!expanded));
+        menu.classList.toggle('show');
+      });
+      // 메뉴 외부 클릭 닫기
+      document.addEventListener('click', (e) => {
+        if (!menu.contains(e.target) && !hamburgerBtn.contains(e.target)) {
+          if (menu.classList.contains('show')) {
+            menu.classList.remove('show');
+            hamburgerBtn.setAttribute('aria-expanded', 'false');
+          }
+        }
+      });
+      // 메뉴 항목 클릭 시 (향후 라우팅용 placeholder)
+      menu.addEventListener('click', (e) => {
+        const link = e.target.closest('a[data-nav]');
+        if (!link) return;
+        e.preventDefault();
+        const dest = link.getAttribute('data-nav');
+        alert(dest + ' 페이지는 준비중입니다.');
+        menu.classList.remove('show');
+        hamburgerBtn.setAttribute('aria-expanded', 'false');
+      });
+    }
+  }); // END DOMContentLoaded (header/menu init)
+
 // 복사/붙여넣기 유틸리티 함수들
 async function copyToClipboard(text) {
   try {
@@ -94,7 +127,6 @@ function showContextMenu(event, inputElement) {
     padding: 10px 15px;
     cursor: pointer;
   `;
-  pasteItem.onmouseover = () => pasteItem.style.background = '#f0f0f0';
   pasteItem.onmouseout = () => pasteItem.style.background = 'white';
   pasteItem.onclick = () => {
     pasteFromClipboard(inputElement);
@@ -109,14 +141,9 @@ function showContextMenu(event, inputElement) {
   menu.style.top = event.pageY + 'px';
   
   document.body.appendChild(menu);
+  // (이벤트 위임 로직은 search() 내에서 설정됨)
 
-  // 다른 곳 클릭시 메뉴 닫기
-  setTimeout(() => {
-    document.addEventListener('click', function closeMenu() {
-      menu.remove();
-      document.removeEventListener('click', closeMenu);
-    });
-  }, 10);
+  // 함수 종료
 }
 
 function updateSummary() {
@@ -347,7 +374,7 @@ async function search() {
         const authors = Array.isArray(row.authors) ? row.authors.join(', ') : (row.authors || '');
         const abstractShort = (row.abstract || '').length > 180 ? (row.abstract.slice(0,180) + '...') : (row.abstract||'');
         const pmidLink = row.pmid ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${row.pmid}/" target="_blank" rel="noopener">${row.pmid}</a>` : '';
-        return `<tr class="result-row" data-pmid="${row.pmid}" data-abstract="${encodeURIComponent(row.abstract || '')}">`
+  return `<tr class="result-row" data-pmid="${row.pmid}" data-abstract="${encodeURIComponent(row.abstract || '')}" data-title="${encodeURIComponent(row.title||'')}" data-authors="${encodeURIComponent(authors)}" data-source="${encodeURIComponent(row.source||'')}" data-pubdate="${encodeURIComponent(row.pubdate||'')}">`
           + `<td>${pmidLink}</td>`
           + `<td>${escapeHtml(row.title || '')}</td>`
           + `<td>${escapeHtml(authors)}</td>`
@@ -360,22 +387,29 @@ async function search() {
       return html;
     };
 
-    // XSS 방지를 위한 간단 escape
-    function escapeHtml(str){
-      return String(str).replace(/[&<>"]/g, s=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[s]));
-    }
+  // (로컬 정의 제거됨) 전역 escapeHtml 유틸 사용
 
     resultsEl.innerHTML = buildTable(resultList) + '<div class="results-hint">Rows: '+resultList.length+'</div>';
 
-    // Abstract 확장 이벤트 위임
-    resultsEl.addEventListener('click', function(e){
-      const btn = e.target.closest('button.abs-more-btn');
-      if(!btn) return;
-      const tr = btn.closest('tr');
-      if(!tr) return;
-      const full = decodeURIComponent(tr.getAttribute('data-abstract'));
-      openAbstractModal(full, tr.getAttribute('data-pmid'));
-    }, { once: true });
+    // Abstract 확장 이벤트 위임 (지속 바인딩)
+    if(!resultsEl.__abstractHandlerBound){
+      resultsEl.addEventListener('click', function(e){
+        const btn = e.target.closest('button.abs-more-btn');
+        if(!btn) return;
+        const tr = btn.closest('tr');
+        if(!tr) return;
+        const data = {
+          pmid: tr.getAttribute('data-pmid') || '',
+          abstract: decodeURIComponent(tr.getAttribute('data-abstract')||''),
+          title: decodeURIComponent(tr.getAttribute('data-title')||''),
+          authors: decodeURIComponent(tr.getAttribute('data-authors')||''),
+          source: decodeURIComponent(tr.getAttribute('data-source')||''),
+          pubdate: decodeURIComponent(tr.getAttribute('data-pubdate')||'')
+        };
+        openAbstractModal(data);
+      });
+      resultsEl.__abstractHandlerBound = true;
+    }
 
     ensureAbstractModal();
   } catch (error) {
@@ -384,26 +418,134 @@ async function search() {
   }
 }
 
-// Abstract 모달 생성/표시
+// 전역 XSS 방지 유틸 (표 렌더 + AI 분석 공용)
+function escapeHtml(str){
+  return String(str).replace(/[&<>"]/g, s=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[s]));
+}
+
+// ===== 새 모달 생성/표시 (보고서형 디자인) =====
 function ensureAbstractModal(){
-  if(document.getElementById('abstract-modal')) return;
-  const modal = document.createElement('div');
+  let modal = document.getElementById('abstract-modal');
+  if(modal) return;
+  modal = document.createElement('div');
   modal.id='abstract-modal';
-  modal.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;align-items:center;justify-content:center;padding:1rem;';
-  modal.innerHTML = '<div class="abstract-modal-content" style="background:#fff;max-width:800px;width:100%;max-height:80vh;overflow:auto;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.3);padding:1.25rem;">\n  <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;">\n    <h3 style="margin:0;font-size:1.05rem;">Abstract</h3>\n    <button data-close style="background:#8b00ff;color:#fff;border:none;border-radius:4px;padding:0.4rem 0.8rem;cursor:pointer;">닫기</button>\n  </div>\n  <pre id="abstract-full-text" style="white-space:pre-wrap;font-size:0.85rem;line-height:1.4;margin-top:0.75rem;"></pre>\n</div>';
+  modal.className='abstract-modal';
+  modal.innerHTML = `
+    <div class="abstract-dialog" role="dialog" aria-modal="true">
+      <div class="abstract-header">
+        <div class="header-main">
+          <div class="pmid-badge" id="abstract-pmid"></div>
+          <h3 id="abstract-title" class="abstract-title">Abstract Detail</h3>
+        </div>
+        <div class="header-actions">
+          <button id="ai-analyze-btn" class="btn btn-ai">AI 분석</button>
+          <button data-close class="btn btn-close" aria-label="닫기">닫기 ✕</button>
+        </div>
+      </div>
+      <div class="abstract-meta-grid">
+        <div><label>Authors</label><div id="abstract-authors" class="meta-val"></div></div>
+        <div><label>Journal</label><div id="abstract-source" class="meta-val"></div></div>
+        <div><label>Date</label><div id="abstract-pubdate" class="meta-val"></div></div>
+      </div>
+      <div id="ai-analysis-box" class="ai-analysis-box" style="display:none;">
+        <div class="ai-status">🔍 AI 분석 준비됨 (Gemini)</div>
+        <div class="ai-content" id="ai-analysis-content"></div>
+      </div>
+      <div class="abstract-text-wrapper">
+        <pre id="abstract-full-text" class="abstract-text"></pre>
+      </div>
+    </div>`;
   document.body.appendChild(modal);
   modal.addEventListener('click', (e)=>{ if(e.target===modal || e.target.hasAttribute('data-close')) closeAbstractModal(); });
 }
-function openAbstractModal(text, pmid){
+function openAbstractModal(data){
   ensureAbstractModal();
   const modal = document.getElementById('abstract-modal');
-  const pre = document.getElementById('abstract-full-text');
-  if(pre) pre.textContent = (pmid?`PMID: ${pmid}\n\n`:'') + text;
   modal.style.display='flex';
+  const { pmid, abstract, title, authors, source, pubdate } = data;
+  const pmidEl = document.getElementById('abstract-pmid');
+  const titleEl = document.getElementById('abstract-title');
+  const authorsEl = document.getElementById('abstract-authors');
+  const sourceEl = document.getElementById('abstract-source');
+  const pubEl = document.getElementById('abstract-pubdate');
+  const pre = document.getElementById('abstract-full-text');
+  if(pmidEl) pmidEl.innerHTML = pmid ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${escapeHtml(pmid)}/" target="_blank" rel="noopener">PMID ${escapeHtml(pmid)}</a>` : '';
+  if(titleEl) titleEl.textContent = title || 'Abstract Detail';
+  if(authorsEl) authorsEl.textContent = authors || '';
+  if(sourceEl) sourceEl.textContent = source || '';
+  if(pubEl) pubEl.textContent = pubdate || '';
+  if(pre) pre.textContent = abstract || '';
+
+  const aiBox = document.getElementById('ai-analysis-box');
+  const aiBtn = document.getElementById('ai-analyze-btn');
+  const aiContent = document.getElementById('ai-analysis-content');
+  if(aiBox && aiBtn && aiContent){
+    aiBox.style.display='none';
+    aiContent.textContent='';
+    aiBtn.disabled = false;
+    aiBtn.textContent='AI 분석';
+    aiBtn.onclick = async ()=>{
+      aiBtn.disabled = true;
+      aiBox.style.display='block';
+      const statusEl = aiBox.querySelector('.ai-status');
+      if(statusEl) statusEl.textContent='⏳ Gemini 분석 중...';
+      try {
+        const analysis = await analyzeAbstractWithGemini(abstract||'');
+        if(statusEl) statusEl.textContent='✅ 분석 완료';
+        aiContent.innerHTML = renderAIAnalysis(analysis);
+      } catch(err){
+        console.error('AI 분석 실패', err);
+        if(statusEl) statusEl.textContent='❌ 분석 실패';
+        aiContent.textContent = (err && err.message) ? err.message : '분석 중 오류 발생';
+      } finally {
+        aiBtn.disabled = false; aiBtn.textContent='재분석';
+      }
+    };
+  }
 }
 function closeAbstractModal(){
   const modal = document.getElementById('abstract-modal');
   if(modal) modal.style.display='none';
+}
+
+// ====== Gemini 기반 초록 분석 ======
+const GEMINI_PROMPT_PREFIX = `다음 문헌 초록을 분석하여, 약물 이상사례 보고서에 필요한 4가지 핵심 정보를 JSON 문자열로만 출력. \n필수 키: patient_info, reporter_info, adverse_event_info, suspected_drug_info. \n각 값은 한국어 요약 1~3문장. 정보 없으면 'N/A'. 다른 텍스트 금지.\n초록:\n`;
+
+async function analyzeAbstractWithGemini(abstractText){
+  if(!CONFIG.GEMINI_API_KEY || CONFIG.GEMINI_API_KEY.startsWith('YOUR_')){
+    throw new Error('Gemini API Key 미설정 (config.js 수정 필요)');
+  }
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(CONFIG.GEMINI_MODEL || 'gemini-1.5-flash')}:generateContent?key=${encodeURIComponent(CONFIG.GEMINI_API_KEY)}`;
+  const body = {
+    contents: [
+      { role:'user', parts:[{ text: GEMINI_PROMPT_PREFIX + abstractText }] }
+    ],
+    generationConfig: { temperature:0.1 }
+  };
+  const res = await fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+  if(!res.ok){
+    const t = await res.text();
+    throw new Error('Gemini 응답 오류: '+res.status+' '+t.slice(0,200));
+  }
+  const data = await res.json();
+  const text = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0].text;
+  if(!text) throw new Error('Gemini 응답 파싱 실패');
+  let cleaned = text.trim();
+  // 코드블록 감싸짐 제거
+  cleaned = cleaned.replace(/^```json\n?/i,'').replace(/```$/,'').trim();
+  let parsed; try { parsed = JSON.parse(cleaned); } catch(e){ throw new Error('JSON 파싱 실패: '+e.message); }
+  return parsed;
+}
+
+function renderAIAnalysis(obj){
+  const safe = (s)=>!s||typeof s!=='string' ? 'N/A' : escapeHtml(s);
+  return `<div class="ai-grid">`
+    + `<div><strong>① 환자 정보</strong><br>${safe(obj.patient_info)}</div>`
+    + `<div><strong>② 보고자 정보</strong><br>${safe(obj.reporter_info)}</div>`
+    + `<div><strong>③ 이상사례 정보</strong><br>${safe(obj.adverse_event_info)}</div>`
+    + `<div><strong>④ 의심 의약품 정보</strong><br>${safe(obj.suspected_drug_info)}</div>`
+    + `</div>`
+    + `<div style="margin-top:.5rem;font-size:.65rem;opacity:.7;">AI 자동 추출 결과이며 원문 임상적 검증 필요함.</div>`;
 }
 
 // 키워드와 날짜 필터를 조합한 검색 쿼리 생성
@@ -1286,3 +1428,5 @@ async function saveAsPDF(data) {
 function escapeForPdf(str){
   return String(str).replace(/[&<>]/g, s=>({ '&':'&amp;','<':'&lt;','>':'&gt;' }[s]));
 }
+
+// EOF guard: ensure no unclosed blocks

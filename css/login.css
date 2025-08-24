@@ -37,19 +37,26 @@ body {
   text-align: center;
 }
 
-.login-header img {
-  height: 120px; /* 이전 60px 대비 2배 */
-  width: auto; /* 비율 유지 */
+/* 통합 로고 크기 규격 (.app-logo) 적용: 메인 페이지와 동일, 기존 대비 축소 */
+.login-header img,
+.login-header .app-logo {
+  height: 53px; /* 기존 120px -> 53px (약 55% 축소, 메인과 동일 max-height) */
+  width: auto;
   margin-bottom: 1rem;
   border-radius: 12px;
   background: white;
   padding: 6px;
   object-fit: contain;
   display: inline-block;
+  transition: transform 0.25s ease;
+}
+
+.login-header img:hover {
+  transform: scale(1.03);
 }
 
 @media (max-width: 500px) {
-  .login-header img { height: 95px; }
+  .login-header img { height: 46px; }
 }
 
 .login-header h1 {
