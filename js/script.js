@@ -94,7 +94,6 @@ function showContextMenu(event, inputElement) {
     padding: 10px 15px;
     cursor: pointer;
   `;
-  pasteItem.onmouseover = () => pasteItem.style.background = '#f0f0f0';
   pasteItem.onmouseout = () => pasteItem.style.background = 'white';
   pasteItem.onclick = () => {
     pasteFromClipboard(inputElement);
@@ -109,14 +108,9 @@ function showContextMenu(event, inputElement) {
   menu.style.top = event.pageY + 'px';
   
   document.body.appendChild(menu);
+  // (이벤트 위임 로직은 search() 내에서 설정됨)
 
-  // 다른 곳 클릭시 메뉴 닫기
-  setTimeout(() => {
-    document.addEventListener('click', function closeMenu() {
-      menu.remove();
-      document.removeEventListener('click', closeMenu);
-    });
-  }, 10);
+  // 함수 종료
 }
 
 function updateSummary() {
@@ -347,7 +341,7 @@ async function search() {
         const authors = Array.isArray(row.authors) ? row.authors.join(', ') : (row.authors || '');
         const abstractShort = (row.abstract || '').length > 180 ? (row.abstract.slice(0,180) + '...') : (row.abstract||'');
         const pmidLink = row.pmid ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${row.pmid}/" target="_blank" rel="noopener">${row.pmid}</a>` : '';
-        return `<tr class="result-row" data-pmid="${row.pmid}" data-abstract="${encodeURIComponent(row.abstract || '')}">`
+  return `<tr class="result-row" data-pmid="${row.pmid}" data-abstract="${encodeURIComponent(row.abstract || '')}" data-title="${encodeURIComponent(row.title||'')}" data-authors="${encodeURIComponent(authors)}" data-source="${encodeURIComponent(row.source||'')}" data-pubdate="${encodeURIComponent(row.pubdate||'')}">`
           + `<td>${pmidLink}</td>`
           + `<td>${escapeHtml(row.title || '')}</td>`
           + `<td>${escapeHtml(authors)}</td>`
@@ -364,15 +358,25 @@ async function search() {
 
     resultsEl.innerHTML = buildTable(resultList) + '<div class="results-hint">Rows: '+resultList.length+'</div>';
 
-    // Abstract 확장 이벤트 위임
-    resultsEl.addEventListener('click', function(e){
-      const btn = e.target.closest('button.abs-more-btn');
-      if(!btn) return;
-      const tr = btn.closest('tr');
-      if(!tr) return;
-      const full = decodeURIComponent(tr.getAttribute('data-abstract'));
-      openAbstractModal(full, tr.getAttribute('data-pmid'));
-    }, { once: true });
+    // Abstract 확장 이벤트 위임 (지속 바인딩)
+    if(!resultsEl.__abstractHandlerBound){
+      resultsEl.addEventListener('click', function(e){
+        const btn = e.target.closest('button.abs-more-btn');
+        if(!btn) return;
+        const tr = btn.closest('tr');
+        if(!tr) return;
+        const data = {
+          pmid: tr.getAttribute('data-pmid') || '',
+          abstract: decodeURIComponent(tr.getAttribute('data-abstract')||''),
+          title: decodeURIComponent(tr.getAttribute('data-title')||''),
+          authors: decodeURIComponent(tr.getAttribute('data-authors')||''),
+          source: decodeURIComponent(tr.getAttribute('data-source')||''),
+          pubdate: decodeURIComponent(tr.getAttribute('data-pubdate')||'')
+        };
+        openAbstractModal(data);
+      });
+      resultsEl.__abstractHandlerBound = true;
+    }
 
     ensureAbstractModal();
   } catch (error) {
@@ -386,23 +390,59 @@ function escapeHtml(str){
   return String(str).replace(/[&<>"]/g, s=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[s]));
 }
 
-// Abstract 모달 생성/표시
+// ===== 새 모달 생성/표시 (보고서형 디자인) =====
 function ensureAbstractModal(){
-  if(document.getElementById('abstract-modal')) return;
-  const modal = document.createElement('div');
+  let modal = document.getElementById('abstract-modal');
+  if(modal) return;
+  modal = document.createElement('div');
   modal.id='abstract-modal';
-  modal.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;align-items:center;justify-content:center;padding:1rem;';
-  modal.innerHTML = '<div class="abstract-modal-content" style="background:#fff;max-width:880px;width:100%;max-height:85vh;overflow:auto;border-radius:10px;box-shadow:0 4px 24px rgba(0,0,0,0.35);padding:1.25rem;">\n  <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;">\n    <h3 style="margin:0;font-size:1.05rem;">Abstract</h3>\n    <div style="display:flex;gap:.5rem;align-items:center;">\n      <button id="ai-analyze-btn" style="background:#4b0082;color:#fff;border:none;border-radius:4px;padding:0.4rem 0.7rem;cursor:pointer;font-size:0.7rem;">AI 분석</button>\n      <button data-close style="background:#8b00ff;color:#fff;border:none;border-radius:4px;padding:0.4rem 0.8rem;cursor:pointer;">닫기</button>\n    </div>\n  </div>\n  <div id="ai-analysis-box" class="ai-analysis-box" style="display:none; margin-top:.75rem; border:1px solid #e2d9f7; background:#f8f5ff; padding:.75rem; border-radius:6px; font-size:.78rem; line-height:1.35; position:relative;">\n    <div class="ai-status" style="font-weight:600; color:#4b0082; margin-bottom:.4rem;">🔍 AI 분석 준비됨 (Gemini)</div>\n    <div class="ai-content" id="ai-analysis-content"></div>\n  </div>\n  <pre id="abstract-full-text" style="white-space:pre-wrap;font-size:0.85rem;line-height:1.4;margin-top:0.9rem;"></pre>\n</div>';
+  modal.className='abstract-modal';
+  modal.innerHTML = `
+    <div class="abstract-dialog" role="dialog" aria-modal="true">
+      <div class="abstract-header">
+        <div class="header-main">
+          <div class="pmid-badge" id="abstract-pmid"></div>
+          <h3 id="abstract-title" class="abstract-title">Abstract Detail</h3>
+        </div>
+        <div class="header-actions">
+          <button id="ai-analyze-btn" class="btn btn-ai">AI 분석</button>
+          <button data-close class="btn btn-close" aria-label="닫기">닫기 ✕</button>
+        </div>
+      </div>
+      <div class="abstract-meta-grid">
+        <div><label>Authors</label><div id="abstract-authors" class="meta-val"></div></div>
+        <div><label>Journal</label><div id="abstract-source" class="meta-val"></div></div>
+        <div><label>Date</label><div id="abstract-pubdate" class="meta-val"></div></div>
+      </div>
+      <div id="ai-analysis-box" class="ai-analysis-box" style="display:none;">
+        <div class="ai-status">🔍 AI 분석 준비됨 (Gemini)</div>
+        <div class="ai-content" id="ai-analysis-content"></div>
+      </div>
+      <div class="abstract-text-wrapper">
+        <pre id="abstract-full-text" class="abstract-text"></pre>
+      </div>
+    </div>`;
   document.body.appendChild(modal);
   modal.addEventListener('click', (e)=>{ if(e.target===modal || e.target.hasAttribute('data-close')) closeAbstractModal(); });
 }
-function openAbstractModal(text, pmid){
+function openAbstractModal(data){
   ensureAbstractModal();
   const modal = document.getElementById('abstract-modal');
-  const pre = document.getElementById('abstract-full-text');
-  if(pre) pre.textContent = (pmid?`PMID: ${pmid}\n\n`:'') + text;
   modal.style.display='flex';
-  // AI 섹션 초기화
+  const { pmid, abstract, title, authors, source, pubdate } = data;
+  const pmidEl = document.getElementById('abstract-pmid');
+  const titleEl = document.getElementById('abstract-title');
+  const authorsEl = document.getElementById('abstract-authors');
+  const sourceEl = document.getElementById('abstract-source');
+  const pubEl = document.getElementById('abstract-pubdate');
+  const pre = document.getElementById('abstract-full-text');
+  if(pmidEl) pmidEl.innerHTML = pmid ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${escapeHtml(pmid)}/" target="_blank" rel="noopener">PMID ${escapeHtml(pmid)}</a>` : '';
+  if(titleEl) titleEl.textContent = title || 'Abstract Detail';
+  if(authorsEl) authorsEl.textContent = authors || '';
+  if(sourceEl) sourceEl.textContent = source || '';
+  if(pubEl) pubEl.textContent = pubdate || '';
+  if(pre) pre.textContent = abstract || '';
+
   const aiBox = document.getElementById('ai-analysis-box');
   const aiBtn = document.getElementById('ai-analyze-btn');
   const aiContent = document.getElementById('ai-analysis-content');
@@ -410,13 +450,14 @@ function openAbstractModal(text, pmid){
     aiBox.style.display='none';
     aiContent.textContent='';
     aiBtn.disabled = false;
+    aiBtn.textContent='AI 분석';
     aiBtn.onclick = async ()=>{
       aiBtn.disabled = true;
       aiBox.style.display='block';
       const statusEl = aiBox.querySelector('.ai-status');
       if(statusEl) statusEl.textContent='⏳ Gemini 분석 중...';
       try {
-        const analysis = await analyzeAbstractWithGemini(text);
+        const analysis = await analyzeAbstractWithGemini(abstract||'');
         if(statusEl) statusEl.textContent='✅ 분석 완료';
         aiContent.innerHTML = renderAIAnalysis(analysis);
       } catch(err){
@@ -1354,3 +1395,5 @@ async function saveAsPDF(data) {
 function escapeForPdf(str){
   return String(str).replace(/[&<>]/g, s=>({ '&':'&amp;','<':'&lt;','>':'&gt;' }[s]));
 }
+
+// EOF guard: ensure no unclosed blocks
