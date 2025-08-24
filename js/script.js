@@ -320,7 +320,7 @@ async function search() {
   // 날짜 필터가 포함된 검색 쿼리 생성
   let searchQuery = buildSearchQuery();
   
-  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(searchQuery)}&retmode=json&retmax=10&api_key=${apiKey}`;
+  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(searchQuery)}&retmode=json&retmax=50&api_key=${apiKey}`; // retmax 10 -> 50
 
   try {
     const searchRes = await fetch(searchUrl);
