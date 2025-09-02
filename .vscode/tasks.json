@@ -1,0 +1,23 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Serve (Python 8000)",
+      "type": "shell",
+      "command": "python3",
+      "args": ["-m", "http.server", "8000"],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Serve (Node 8000)",
+      "type": "shell",
+      "command": "npx",
+      "args": ["--yes", "http-server", "-p", "8000"],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": []
+    }
+  ]
+}
