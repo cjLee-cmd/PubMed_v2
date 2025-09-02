@@ -52,9 +52,12 @@
             <div class="summary-controls">
               <button class="copy-summary-btn" title="검색 조건 복사">📋</button>
               <button class="paste-summary-btn" title="검색 조건 붙여넣기">📄</button>
+              <button class="validate-query-btn" title="쿼리 검증">🔍 쿼리검증</button>
+              <button class="save-query-btn" title="쿼리 저장" onclick="saveQueryToCSV()">💾 저장</button>
+              <button class="load-query-btn" title="쿼리 불러오기" onclick="loadQueryFromCSV()">📂 불러오기</button>
             </div>
           </div>
-          <div class="summary" id="summary"></div>
+          <textarea class="summary-textarea" id="summary" placeholder="검색 조건이 여기에 표시됩니다. 직접 편집할 수 있습니다." rows="4"></textarea>
         </div>
         <button class="search-btn" onclick="search()">Search</button>
       </div>
@@ -138,6 +141,7 @@
   <script src="./js/config.js?v=20250823b"></script>
   <script src="./js/auth.js?v=20250823b"></script>
   <script src="./js/script.js?v=20250823b"></script>
+  <script src="./js/query-manager.js"></script>
   <script src="./js/main-auth.js?v=20250823b"></script>
 </body>
 </html>

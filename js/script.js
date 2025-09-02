@@ -154,7 +154,7 @@ function updateSummary() {
     }
   }
 
-  summary.textContent = formattedText || '검색 조건이 없습니다.';
+  summary.value = formattedText || '검색 조건이 없습니다.';
 }
 
 // 날짜 필터 텍스트 생성
@@ -283,15 +283,20 @@ function validateSearchQuery(query) {
 }
 
 async function search() {
-  const rawQuery = summary.textContent.trim();
+  const rawQuery = summary.value.trim();
   if (!validateSearchQuery(rawQuery)) return;
 
   const apiKey = CONFIG.NCBI_API_KEY;
   const resultsEl = document.getElementById('results');
   resultsEl.innerHTML = `<p>🔍 검색 중입니다... "${rawQuery}"</p>`;
 
-  // 날짜 필터가 포함된 검색 쿼리 생성
-  let searchQuery = buildSearchQuery();
+  // 검색 쿼리 결정: 텍스트박스에 내용이 있으면 우선 사용, 없으면 buildSearchQuery() 사용
+  let searchQuery;
+  if (rawQuery && rawQuery !== '검색 조건이 없습니다.') {
+    searchQuery = rawQuery; // 텍스트박스 내용 사용 (저장/불러오기된 쿼리 포함)
+  } else {
+    searchQuery = buildSearchQuery(); // 키워드 그룹에서 생성
+  }
   
   const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(searchQuery)}&retmode=json&retmax=10&api_key=${apiKey}`;
 
@@ -497,10 +502,11 @@ function initializeSummaryFeatures() {
   const summaryElement = document.getElementById('summary');
   const copySummaryBtn = document.querySelector('.copy-summary-btn');
   const pasteSummaryBtn = document.querySelector('.paste-summary-btn');
+  const validateQueryBtn = document.querySelector('.validate-query-btn');
 
   // 복사 버튼 이벤트
   copySummaryBtn.onclick = () => {
-    const summaryText = summaryElement.textContent || summaryElement.innerText;
+    const summaryText = summaryElement.value || '';
     copyToClipboard(summaryText);
   };
 
@@ -519,6 +525,42 @@ function initializeSummaryFeatures() {
     }
   };
 
+  // 쿼리 검증 버튼 이벤트
+  validateQueryBtn.onclick = () => {
+    const queryText = summaryElement.value.trim();
+    if (!queryText) {
+      showValidationModal('에러', '검증할 쿼리가 없습니다. 검색 조건을 입력해주세요.', false);
+      return;
+    }
+    
+    // 성능 테스트 실행
+    const performanceResults = runPerformanceTests(queryText);
+    
+    if (performanceResults.validation.isValid) {
+      const performanceInfo = `검증 완료
+      
+🔍 검증 성능:
+- 검증 시간: ${performanceResults.validation.time}ms
+- 메모리 사용량: ${performanceResults.memory.used}MB
+- 쿼리 복잡도: ${performanceResults.complexity.score}/100
+
+📊 성능 등급: ${performanceResults.performance.grade}
+⚡ 처리 속도: ${performanceResults.performance.speed}`;
+      
+      showValidationModal('검증 완료', performanceInfo, true);
+    } else {
+      const errorInfo = `에러 발생:
+${performanceResults.validation.errors.join('\n')}
+
+🔍 검증 성능:
+- 검증 시간: ${performanceResults.validation.time}ms
+- 메모리 사용량: ${performanceResults.memory.used}MB
+- 쿼리 복잡도: ${performanceResults.complexity.score}/100`;
+      
+      showValidationModal('에러', errorInfo, false);
+    }
+  };
+
   // 컨텍스트 메뉴 추가
   summaryElement.oncontextmenu = (e) => {
     e.preventDefault();
@@ -530,7 +572,7 @@ function initializeSummaryFeatures() {
   summaryElement.onkeydown = (e) => {
     if (e.ctrlKey || e.metaKey) {
       if (e.key === 'c') {
-        const summaryText = summaryElement.textContent || summaryElement.innerText;
+        const summaryText = summaryElement.value || '';
         copyToClipboard(summaryText);
       } else if (e.key === 'v') {
         pasteSummaryBtn.click();
@@ -569,7 +611,7 @@ function showSummaryContextMenu(event, summaryElement) {
   copyItem.onmouseover = () => copyItem.style.background = '#f0f0f0';
   copyItem.onmouseout = () => copyItem.style.background = 'white';
   copyItem.onclick = () => {
-    const summaryText = summaryElement.textContent || summaryElement.innerText;
+    const summaryText = summaryElement.value || '';
     copyToClipboard(summaryText);
     menu.remove();
   };
@@ -676,9 +718,14 @@ function parseSummaryAndCreateGroups(text) {
     }
   }
   
-  // 마지막에 빈 그룹 하나 추가
+  // 미리보기 텍스트박스에 원본 텍스트 설정 (중복 방지)
+  const summaryElement = document.getElementById('summary');
+  if (summaryElement) {
+    summaryElement.value = text; // 원본 텍스트 그대로 유지
+  }
+  
+  // 마지막에 빈 그룹 하나 추가 (updateSummary 호출 안 함)
   createKeywordGroup();
-  updateSummary();
 }
 
 // 값과 연산자가 설정된 키워드 그룹 생성
@@ -773,6 +820,7 @@ initializeSummaryFeatures();
 
 // 저장 기능 관련 전역 변수
 let currentSearchResults = [];
+let savedQueries = []; // 저장된 쿼리 목록
 
 // 저장 기능 초기화 (강화된 오류 진단)
 function initializeSaveFeatures() {
@@ -1285,4 +1333,362 @@ async function saveAsPDF(data) {
 
 function escapeForPdf(str){
   return String(str).replace(/[&<>]/g, s=>({ '&':'&amp;','<':'&lt;','>':'&gt;' }[s]));
+}
+
+// PubMed 쿼리 검증 함수
+function validatePubMedQuery(query) {
+  const errors = [];
+  let isValid = true;
+
+  // 기본 검증: 빈 쿼리
+  if (!query || query.trim() === '') {
+    errors.push('빈 쿼리입니다.');
+    isValid = false;
+    return { isValid, errors };
+  }
+
+  // 괄호 균형 검증
+  const openBrackets = (query.match(/\(/g) || []).length;
+  const closeBrackets = (query.match(/\)/g) || []).length;
+  if (openBrackets !== closeBrackets) {
+    errors.push(`괄호 불균형: 여는 괄호(${openBrackets}개), 닫는 괄호(${closeBrackets}개)`);
+    isValid = false;
+  }
+
+  // 따옴표 균형 검증
+  const quotes = (query.match(/"/g) || []).length;
+  if (quotes % 2 !== 0) {
+    errors.push(`따옴표 불균형: ${quotes}개 (짝수여야 함)`);
+    isValid = false;
+  }
+
+  // Boolean 연산자 검증
+  const invalidBooleanPattern = /(AND\s+AND|OR\s+OR|NOT\s+NOT|\bAND\s*$|\bOR\s*$|^\s*AND|\^\s*OR)/i;
+  if (invalidBooleanPattern.test(query)) {
+    errors.push('잘못된 Boolean 연산자 사용');
+    isValid = false;
+  }
+
+  // 연속된 연산자 검증
+  const consecutiveOperators = /(AND\s+OR|OR\s+AND|NOT\s+AND|NOT\s+OR)\s+/i;
+  if (consecutiveOperators.test(query)) {
+    errors.push('연속된 Boolean 연산자 사용');
+    isValid = false;
+  }
+
+  // 필드 태그 검증
+  const fieldTags = query.match(/\[([^\]]+)\]/g) || [];
+  const validFields = ['Title', 'Author', 'Abstract', 'MeSH Terms', 'Publication Date', 'Journal', 'DOI', 'PMID', 'All Fields', 'tiab', 'au', 'mh', 'dp', 'ta', 'doi', 'Date - Publication'];
+  
+  fieldTags.forEach(tag => {
+    const field = tag.slice(1, -1); // 대괄호 제거
+    if (!validFields.some(validField => validField.toLowerCase() === field.toLowerCase())) {
+      errors.push(`알 수 없는 필드 태그: ${tag}`);
+      isValid = false;
+    }
+  });
+
+  // 날짜 형식 검증 (YYYY, YYYY/MM, YYYY/MM/DD)
+  const datePattern = /(\d{4}(?:\/\d{2}(?:\/\d{2})?)?)/g;
+  const dates = query.match(datePattern) || [];
+  dates.forEach(date => {
+    const parts = date.split('/');
+    const year = parseInt(parts[0]);
+    const month = parts[1] ? parseInt(parts[1]) : null;
+    const day = parts[2] ? parseInt(parts[2]) : null;
+    
+    if (year < 1900 || year > new Date().getFullYear() + 5) {
+      errors.push(`유효하지 않은 연도: ${year}`);
+      isValid = false;
+    }
+    if (month && (month < 1 || month > 12)) {
+      errors.push(`유효하지 않은 월: ${month}`);
+      isValid = false;
+    }
+    if (day && (day < 1 || day > 31)) {
+      errors.push(`유효하지 않은 일: ${day}`);
+      isValid = false;
+    }
+  });
+
+  // 특수문자 검증 (PubMed에서 문제가 될 수 있는 문자들)
+  const problematicChars = /[<>{}\\]/;
+  if (problematicChars.test(query)) {
+    errors.push('문제가 될 수 있는 특수문자 포함: < > { } \\');
+    isValid = false;
+  }
+
+  // 쿼리 길이 검증 (PubMed 제한)
+  if (query.length > 8000) {
+    errors.push(`쿼리가 너무 깁니다 (${query.length}자, 최대 8000자)`);
+    isValid = false;
+  }
+
+  return { isValid, errors };
+}
+
+// 검증 결과 모달 표시
+function showValidationModal(title, message, isSuccess) {
+  // 기존 모달 제거
+  const existingModal = document.querySelector('.validation-modal');
+  if (existingModal) {
+    existingModal.remove();
+  }
+
+  // 모달 생성
+  const modal = document.createElement('div');
+  modal.className = 'validation-modal';
+  modal.innerHTML = `
+    <div class="validation-modal-content">
+      <div class="validation-modal-header ${isSuccess ? 'success' : 'error'}">
+        <h3>${title}</h3>
+        <span class="validation-modal-close">&times;</span>
+      </div>
+      <div class="validation-modal-body">
+        <pre>${message}</pre>
+      </div>
+      <div class="validation-modal-footer">
+        <button class="validation-modal-ok-btn">OK</button>
+      </div>
+    </div>
+  `;
+
+  // 모달 스타일
+  const style = document.createElement('style');
+  style.textContent = `
+    .validation-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    .validation-modal-content {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      max-width: 500px;
+      width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    .validation-modal-header {
+      padding: 1rem;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .validation-modal-header.success {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .validation-modal-header.error {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    .validation-modal-header h3 {
+      margin: 0;
+      font-size: 1.2rem;
+    }
+    .validation-modal-close {
+      font-size: 1.5rem;
+      cursor: pointer;
+      color: #666;
+    }
+    .validation-modal-close:hover {
+      color: #000;
+    }
+    .validation-modal-body {
+      padding: 1.5rem;
+    }
+    .validation-modal-body pre {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      margin: 0;
+      font-family: inherit;
+      line-height: 1.4;
+    }
+    .validation-modal-footer {
+      padding: 1rem;
+      border-top: 1px solid #eee;
+      text-align: right;
+    }
+    .validation-modal-ok-btn {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 0.5rem 1.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 1rem;
+    }
+    .validation-modal-ok-btn:hover {
+      background-color: #45a049;
+    }
+  `;
+
+  document.head.appendChild(style);
+  document.body.appendChild(modal);
+
+  // 이벤트 리스너
+  const closeModal = () => {
+    modal.remove();
+    style.remove();
+  };
+
+  modal.querySelector('.validation-modal-close').onclick = closeModal;
+  modal.querySelector('.validation-modal-ok-btn').onclick = closeModal;
+  modal.onclick = (e) => {
+    if (e.target === modal) closeModal();
+  };
+
+  // ESC 키로 모달 닫기
+  const handleEsc = (e) => {
+    if (e.key === 'Escape') {
+      closeModal();
+      document.removeEventListener('keydown', handleEsc);
+    }
+  };
+  document.addEventListener('keydown', handleEsc);
+}
+
+// 성능 테스트 실행 함수
+function runPerformanceTests(query) {
+  const startTime = performance.now();
+  let memoryBefore = 0;
+  
+  // 메모리 사용량 측정 (가능한 경우)
+  if (performance.memory) {
+    memoryBefore = performance.memory.usedJSHeapSize;
+  }
+  
+  // 쿼리 검증 실행
+  const validationResult = validatePubMedQuery(query);
+  
+  const endTime = performance.now();
+  const validationTime = (endTime - startTime).toFixed(2);
+  
+  let memoryAfter = 0;
+  if (performance.memory) {
+    memoryAfter = performance.memory.usedJSHeapSize;
+  }
+  
+  // 메모리 사용량 계산 (MB 단위)
+  const memoryUsed = performance.memory 
+    ? ((memoryAfter - memoryBefore) / 1024 / 1024).toFixed(2)
+    : 'N/A';
+  
+  // 쿼리 복잡도 계산
+  const complexityScore = calculateQueryComplexity(query);
+  
+  // 성능 등급 계산
+  const performanceGrade = calculatePerformanceGrade(validationTime, complexityScore);
+  
+  return {
+    validation: {
+      isValid: validationResult.isValid,
+      errors: validationResult.errors,
+      time: validationTime
+    },
+    memory: {
+      used: memoryUsed,
+      supported: !!performance.memory
+    },
+    complexity: {
+      score: complexityScore,
+      level: getComplexityLevel(complexityScore)
+    },
+    performance: {
+      grade: performanceGrade.grade,
+      speed: performanceGrade.speed
+    }
+  };
+}
+
+// 쿼리 복잡도 계산
+function calculateQueryComplexity(query) {
+  let score = 0;
+  
+  // 기본 점수
+  score += Math.min(query.length / 10, 20); // 길이 (최대 20점)
+  
+  // Boolean 연산자 개수
+  const booleanOps = (query.match(/\b(AND|OR|NOT)\b/gi) || []).length;
+  score += booleanOps * 5; // 연산자당 5점
+  
+  // 괄호 중첩 깊이
+  const maxNesting = calculateMaxNesting(query);
+  score += maxNesting * 10; // 중첩당 10점
+  
+  // 필드 태그 개수
+  const fieldTags = (query.match(/\[[^\]]+\]/g) || []).length;
+  score += fieldTags * 3; // 필드당 3점
+  
+  // 따옴표로 감싼 구문 개수
+  const quotedPhrases = (query.match(/"[^"]+"/g) || []).length;
+  score += quotedPhrases * 2; // 구문당 2점
+  
+  // 와일드카드 개수
+  const wildcards = (query.match(/\*/g) || []).length;
+  score += wildcards * 1; // 와일드카드당 1점
+  
+  return Math.min(Math.round(score), 100); // 최대 100점
+}
+
+// 괄호 최대 중첩 깊이 계산
+function calculateMaxNesting(query) {
+  let maxDepth = 0;
+  let currentDepth = 0;
+  
+  for (let char of query) {
+    if (char === '(') {
+      currentDepth++;
+      maxDepth = Math.max(maxDepth, currentDepth);
+    } else if (char === ')') {
+      currentDepth--;
+    }
+  }
+  
+  return maxDepth;
+}
+
+// 복잡도 레벨 반환
+function getComplexityLevel(score) {
+  if (score <= 20) return '간단';
+  if (score <= 40) return '보통';
+  if (score <= 70) return '복잡';
+  return '매우 복잡';
+}
+
+// 성능 등급 계산
+function calculatePerformanceGrade(timeMs, complexityScore) {
+  const time = parseFloat(timeMs);
+  let grade = 'A+';
+  let speed = '매우 빠름';
+  
+  // 복잡도를 고려한 성능 평가
+  const expectedTime = complexityScore * 0.1 + 1; // 복잡도에 따른 예상 시간
+  const performanceRatio = time / expectedTime;
+  
+  if (performanceRatio > 3) {
+    grade = 'D';
+    speed = '느림';
+  } else if (performanceRatio > 2) {
+    grade = 'C';
+    speed = '보통';
+  } else if (performanceRatio > 1.5) {
+    grade = 'B';
+    speed = '빠름';
+  } else if (performanceRatio > 1) {
+    grade = 'A';
+    speed = '매우 빠름';
+  }
+  
+  return { grade, speed };
 }
