@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Acuzenic - Login</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./css/login.css?v=20250823c" />
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-card">
+      <div class="login-header">
+        <img src="./assets/APTS_Logo.png" alt="Acuzenic Logo" />
+        <h1>Acuzenic</h1>
+        <p>AI Pharmacovigilance Total Solution</p>
+      </div>
+
+      <!-- 로그인 폼 -->
+      <div class="login-form" id="login-form">
+        <h2>로그인</h2>
+        <form id="loginForm">
+          <div class="form-group">
+            <label for="username">사용자 ID</label>
+            <input type="text" id="username" name="username" required>
+          </div>
+          <div class="form-group">
+            <label for="password">비밀번호</label>
+            <input type="password" id="password" name="password" required>
+          </div>
+          <button type="submit" class="btn-primary">로그인</button>
+        </form>
+        <div class="form-actions">
+          <button type="button" class="btn-secondary" onclick="showRegisterForm()">회원가입</button>
+          <button type="button" class="btn-guest" onclick="enterAsGuest()">게스트로 입장</button>
+        </div>
+      </div>
+
+      <!-- 회원가입 폼 -->
+      <div class="register-form" id="register-form" style="display: none;">
+        <h2>회원가입</h2>
+        <form id="registerForm">
+          <div class="form-group">
+            <label for="reg-username">사용자 ID</label>
+            <input type="text" id="reg-username" name="username" required>
+            <small>4-20자의 영문, 숫자만 사용 가능합니다.</small>
+          </div>
+          <div class="form-group">
+            <label for="reg-password">비밀번호</label>
+            <input type="password" id="reg-password" name="password" required>
+            <small>8자 이상의 비밀번호를 입력하세요.</small>
+          </div>
+          <div class="form-group">
+            <label for="reg-password-confirm">비밀번호 확인</label>
+            <input type="password" id="reg-password-confirm" name="password-confirm" required>
+          </div>
+          <div class="form-group">
+            <label for="reg-email">이메일</label>
+            <input type="email" id="reg-email" name="email" required>
+          </div>
+          <div class="form-group">
+            <label for="reg-name">이름</label>
+            <input type="text" id="reg-name" name="name" required>
+          </div>
+          <button type="submit" class="btn-primary">가입하기</button>
+        </form>
+        <div class="form-actions">
+          <button type="button" class="btn-secondary" onclick="showLoginForm()">로그인으로 돌아가기</button>
+        </div>
+      </div>
+
+      <!-- 마스터 관리 패널 -->
+      <div class="master-panel" id="master-panel" style="display: none;">
+        <h2>마스터 관리 패널</h2>
+        <div class="master-actions">
+          <button onclick="createInitialExcelFile()" class="btn-primary">초기 엑셀 파일 생성</button>
+          <button onclick="uploadUserData()" class="btn-secondary">엑셀에서 사용자 로드</button>
+          <button onclick="downloadUserData()" class="btn-secondary">현재 사용자 다운로드</button>
+        </div>
+        <input type="file" id="userDataFile" accept=".xlsx,.xls" style="display: none;" />
+        <div class="user-list" id="user-list">
+          <!-- 사용자 목록이 여기에 표시됩니다 -->
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn-guest" onclick="goToMainPage()">메인 페이지로 이동</button>
+        </div>
+      </div>
+
+      <!-- 로딩 스피너 -->
+      <div class="loading" id="loading" style="display: none;">
+        <div class="spinner"></div>
+        <p>처리 중...</p>
+      </div>
+
+      <!-- 알림 메시지 -->
+      <div class="alert" id="alert" style="display: none;">
+        <span id="alert-message"></span>
+        <button onclick="hideAlert()">×</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 라이브러리 로드 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="./js/config.js?v=20250823b"></script>
+  <script src="./js/auth.js?v=20250823b"></script>
+</body>
+</html>

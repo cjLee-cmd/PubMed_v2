@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Acuzenic - AI Pharmacovigilance</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./css/style.css?v=20250823c" />
+</head>
+<body>
+  <header>
+    <div class="header-content">
+      <div class="header-left">
+        <img src="./assets/APTS_Logo.png" alt="Acuzenic Logo" />
+        <h1>Acuzenic - AI Pharmacovigilance Total Solution</h1>
+      </div>
+      <div class="header-right">
+        <div class="user-info" id="user-info">
+          <!-- 사용자 정보가 여기에 표시됩니다 -->
+        </div>
+        <button class="logout-btn" id="logout-btn" onclick="logout()" style="display: none;">로그아웃</button>
+      </div>
+    </div>
+  </header>
+  <main>
+    <div class="container">
+      <div class="search-panel">
+        <h2>검색 조건 설정</h2>
+        <div id="keyword-container"></div>
+        <div class="date-filter-container">
+          <div class="date-filter-header">
+            <h3>발행 기간 설정</h3>
+            <label class="date-filter-toggle">
+              <input type="checkbox" id="enable-date-filter" />
+              <span>기간 필터 사용</span>
+            </label>
+          </div>
+          <div class="date-filter-inputs" id="date-filter-inputs">
+            <div class="date-input-group">
+              <label for="start-date">시작일:</label>
+              <input type="date" id="start-date" />
+            </div>
+            <div class="date-input-group">
+              <label for="end-date">종료일:</label>
+              <input type="date" id="end-date" />
+            </div>
+          </div>
+        </div>
+        <div class="summary-container">
+          <div class="summary-header">
+            <h3>검색 조건 미리보기</h3>
+            <div class="summary-controls">
+              <button class="copy-summary-btn" title="검색 조건 복사">📋</button>
+              <button class="paste-summary-btn" title="검색 조건 붙여넣기">📄</button>
+            </div>
+          </div>
+          <div class="summary" id="summary"></div>
+        </div>
+        <button class="search-btn" onclick="search()">Search</button>
+      </div>
+      <div class="results-panel">
+        <div class="results-header">
+          <h2>검색 결과</h2>
+          <div class="results-controls">
+            <button class="save-json-btn" title="JSON으로 저장" disabled>📄 JSON</button>
+            <button class="save-excel-btn" title="Excel로 저장" disabled>📊 Excel</button>
+            <button class="save-pdf-btn" title="PDF로 저장" disabled>🖨️ PDF</button>
+          </div>
+        </div>
+        <div class="results" id="results">Results will appear here...</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- 라이브러리 및 스크립트 로드 -->
+  <!-- Multiple XLSX CDN fallbacks for reliability -->
+  <script>
+    // XLSX 라이브러리 로딩 함수
+    function loadXLSXLibrary() {
+      return new Promise((resolve, reject) => {
+        const cdnSources = [
+          'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+          'https://unpkg.com/xlsx/dist/xlsx.full.min.js',
+          'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+          'https://cdn.sheetjs.com/xlsx-0.18.5/package/dist/xlsx.full.min.js'
+        ];
+        
+        let currentIndex = 0;
+        
+        function tryLoadScript() {
+          if (currentIndex >= cdnSources.length) {
+            reject(new Error('모든 CDN에서 XLSX 로드 실패'));
+            return;
+          }
+          
+          const script = document.createElement('script');
+          script.src = cdnSources[currentIndex];
+          
+          script.onload = () => {
+            if (typeof XLSX !== 'undefined') {
+              console.log(`XLSX 라이브러리 로드 성공 (CDN ${currentIndex + 1}):`, cdnSources[currentIndex]);
+              resolve(XLSX);
+            } else {
+              currentIndex++;
+              tryLoadScript();
+            }
+          };
+          
+          script.onerror = () => {
+            console.warn(`CDN ${currentIndex + 1} 실패:`, cdnSources[currentIndex]);
+            currentIndex++;
+            tryLoadScript();
+          };
+          
+          document.head.appendChild(script);
+        }
+        
+        tryLoadScript();
+      });
+    }
+    
+    // XLSX 라이브러리 로드 시작
+    window.xlsxLoadPromise = loadXLSXLibrary()
+      .then(() => {
+        console.log('✅ XLSX 라이브러리 준비 완료');
+        window.xlsxReady = true;
+      })
+      .catch(error => {
+        console.error('❌ XLSX 라이브러리 로드 완전 실패:', error);
+        window.xlsxReady = false;
+        // 사용자에게 알림
+        setTimeout(() => {
+          alert('Excel 기능을 사용하려면 인터넷 연결을 확인하고 페이지를 새로고침해주세요.');
+        }, 1000);
+      });
+  </script>
+  
+  <script src="./js/config.js?v=20250823b"></script>
+  <script src="./js/auth.js?v=20250823b"></script>
+  <script src="./js/script.js?v=20250823b"></script>
+  <script src="./js/main-auth.js?v=20250823b"></script>
+</body>
+</html>
