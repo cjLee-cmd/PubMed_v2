@@ -9,7 +9,6 @@ function initializeLocalQueryFile() {
   if (!existingData) {
     const headers = 'QueryName,Keywords,RawKeywords,DateFilter,CreatedDate,LastUsed\n';
     localStorage.setItem(LOCAL_QUERY_FILE_KEY, headers);
-    console.log('📁 로컬 Query.csv 파일 초기화됨');
   }
 }
 
@@ -55,24 +54,14 @@ function saveQueryToCSV() {
       lastUsed: new Date().toISOString()
     };
     
-    if (DEBUG_MODE) {
-      console.log('💾 쿼리 저장 데이터:', {
-        name: currentQuery.name,
-        keywords: currentQuery.keywords,
-        summaryContent: summaryContent,
-        buildSearchQueryResult: buildSearchQuery(),
-        source: summaryContent && summaryContent !== '검색 조건이 없습니다.' ? 'summary_textbox' : 'buildSearchQuery'
-      });
-    }
+    // Query saved successfully
     
     // 로컬 Query.csv 파일에 저장
     saveQueryToLocal(currentQuery);
     
     showToast(`✅ 쿼리 '${queryName}' 로컬 파일에 저장 완료!`);
     
-    if (DEBUG_MODE) {
-      console.log('🔖 로컬 파일에 쿼리 저장됨:', currentQuery);
-    }
+    // Query stored locally
     
   } catch (error) {
     console.error('❌ 쿼리 저장 실패:', error);
@@ -179,9 +168,7 @@ function downloadCSV(content, filename) {
       URL.revokeObjectURL(url);
     }, 100);
     
-    if (DEBUG_MODE) {
-      console.log(`📥 CSV 다운로드: ${filename}`);
-    }
+    // CSV download completed
     
   } catch (error) {
     console.error('❌ CSV 다운로드 실패:', error);
@@ -210,9 +197,7 @@ function saveQueryToLocal(newQuery) {
     // 로컬스토리지에 저장
     localStorage.setItem(LOCAL_QUERY_FILE_KEY, csvContent);
     
-    if (DEBUG_MODE) {
-      console.log(`📁 로컬 Query.csv 업데이트됨: ${filteredQueries.length}개 쿼리`);
-    }
+    // Local CSV updated
     
   } catch (error) {
     console.error('❌ 로컬 파일 저장 실패:', error);
@@ -232,9 +217,7 @@ function loadLocalQueries() {
     // CSV 파싱
     const queries = parseQueryCSV(csvContent);
     
-    if (DEBUG_MODE) {
-      console.log(`📂 로컬 Query.csv 로드됨: ${queries.length}개 쿼리`);
-    }
+    // CSV loaded successfully
     
     return queries;
     
@@ -258,9 +241,7 @@ function loadQueryFromCSV() {
     // 쿼리 선택 대화상자 표시
     showQuerySelectionDialog(queries);
     
-    if (DEBUG_MODE) {
-      console.log('📂 로컬 쿼리 목록 표시:', queries.length, '개');
-    }
+    // Query list loaded
     
   } catch (error) {
     console.error('❌ 쿼리 불러오기 실패:', error);
@@ -621,9 +602,7 @@ function loadSelectedQuery(index) {
     
     const query = window.dialogQueries[index];
     
-    if (DEBUG_MODE) {
-      console.log('🔖 쿼리 불러오기 시작:', query);
-    }
+    // Loading query
     
     // 필수 함수 존재 확인
     if (typeof createKeywordGroup !== 'function') {
@@ -637,7 +616,7 @@ function loadSelectedQuery(index) {
     // 키워드 그룹 복원 (안전한 실행)
     try {
       restoreKeywordGroups(query.rawKeywords);
-      console.log('✅ 키워드 그룹 복원 성공');
+      // Keywords restored
     } catch (keywordError) {
       console.error('❌ 키워드 그룹 복원 실패:', keywordError);
       showToast('⚠️ 키워드 복원 중 오류가 발생했습니다.');
@@ -646,7 +625,7 @@ function loadSelectedQuery(index) {
     // 날짜 필터 복원 (안전한 실행)
     try {
       restoreDateFilter(query.dateFilter);
-      console.log('✅ 날짜 필터 복원 성공');
+      // Date filter restored
     } catch (dateError) {
       console.error('❌ 날짜 필터 복원 실패:', dateError);
     }

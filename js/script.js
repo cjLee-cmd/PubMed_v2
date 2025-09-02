@@ -323,15 +323,32 @@ async function search() {
 
     const resultList = ids.map((id, index) => {
       const item = summaryData.result[id];
+      const abstract = abstractList[index] || '';
       return {
         pmid: id,
         title: item.title || '제목 없음',
         authors: (item.authors || []).map(a => a.name),
         source: item.source || '',
         pubdate: item.pubdate || '',
-        abstract: abstractList[index] || '초록 없음'
+        abstract: abstract
       };
+    }).filter(result => {
+      // Abstract가 없거나 '초록 없음' 또는 빈 문자열인 경우 필터링
+      const hasValidAbstract = result.abstract && 
+        result.abstract.trim() !== '' && 
+        result.abstract !== '초록 없음' &&
+        !result.abstract.includes('Abstract not available') &&
+        result.abstract.toLowerCase() !== 'no abstract available';
+      return hasValidAbstract;
     });
+
+    // Abstract가 있는 결과가 없을 경우 처리
+    if (resultList.length === 0) {
+      resultsEl.innerHTML = `<p>🔎 Abstract가 있는 검색 결과가 없습니다.</p>`;
+      currentSearchResults = [];
+      updateSaveButtons(false);
+      return;
+    }
 
     // Grid/Table 렌더링
     currentSearchResults = resultList;
@@ -1158,81 +1175,7 @@ if (document.readyState === 'loading') {
   }, 50);
 }
 
-// 테스트용 샘플 데이터 생성 (개발용)
-function createSampleData() {
-  return [
-    {
-      pmid: '12345678',
-      title: '테스트 논문 제목 1',
-      authors: ['김철수', '이영희', '박민수'],
-      source: 'Nature Medicine',
-      pubdate: '2024-01-15',
-      abstract: '이것은 테스트용 초록입니다. Excel 내보내기 기능을 테스트하기 위한 샘플 데이터입니다.'
-    },
-    {
-      pmid: '87654321',
-      title: 'Sample Research Paper 2',
-      authors: ['John Smith', 'Jane Doe'],
-      source: 'Science Journal',
-      pubdate: '2024-02-20',
-      abstract: 'This is a sample abstract for testing Excel export functionality.'
-    }
-  ];
-}
-
-// Excel 진단 함수 (콘솔에서 호출 가능)
-window.diagnoseExcel = function() {
-  if (DEBUG_MODE) console.log('🔍 Excel 진단을 시작합니다...');
-  const result = diagnoseExcelIssue();
-  if (DEBUG_MODE) {
-    console.table(result);
-    console.log('🔍 브라우저 지원 현황:', result.browserSupport);
-  }
-  return result;
-};
-
-// CSV 테스트 함수 (콘솔에서 호출 가능)
-window.testCSVExport = function() {
-  if (DEBUG_MODE) console.log('📊 CSV 내보내기 테스트를 시작합니다...');
-  const sampleData = createSampleData();
-  currentSearchResults = sampleData;
-  updateSaveButtons(true);
-  saveAsCSV(sampleData);
-  if (DEBUG_MODE) console.log('✅ CSV 테스트 완료');
-};
-
-// Excel 테스트 함수 (개발용 - 콘솔에서 호출 가능)
-window.testExcelExport = function() {
-  if (DEBUG_MODE) console.log('📈 Excel 내보내기 테스트를 시작합니다...');
-  const sampleData = createSampleData();
-  currentSearchResults = sampleData;
-  updateSaveButtons(true);
-  saveAsExcel(sampleData);
-  if (DEBUG_MODE) console.log('✅ Excel 테스트 완료');
-};
-
-// 종합 테스트 함수 (콘솔에서 호출 가능)
-window.runFullTest = function() {
-  if (DEBUG_MODE) console.log('🚀 전체 내보내기 테스트를 시작합니다...');
-  
-  // 1. 진단
-  if (DEBUG_MODE) console.log('1️⃣ 진단 단계');
-  const diagnostics = diagnoseExcel();
-  
-  // 2. CSV 테스트
-  if (DEBUG_MODE) console.log('2️⃣ CSV 테스트');
-  testCSVExport();
-  
-  // 3. Excel 테스트 (XLSX가 로드된 경우만)
-  if (diagnostics.xlsxLoaded) {
-    if (DEBUG_MODE) console.log('3️⃣ Excel 테스트');
-    setTimeout(() => testExcelExport(), 1000);
-  } else {
-    if (DEBUG_MODE) console.warn('⚠️ XLSX 라이브러리가 로드되지 않아 Excel 테스트를 건너뜁니다.');
-  }
-  
-  if (DEBUG_MODE) console.log('🎯 전체 테스트 완료 예정');
-};
+// Production code - debug functions removed
 
 // ===== PDF 내보내기 기능 =====
 // html2pdf 동적 로더 (한 번만 로드)
@@ -1272,7 +1215,13 @@ async function saveAsPDF(data) {
   const now = new Date();
   const todayStr = now.toISOString().slice(0,10);
   const printDateTime = now.toLocaleString();
-  const searchQuery = buildSearchQuery();
+  
+  // 검색 쿼리 가져오기: 텍스트박스 내용 우선, 없으면 buildSearchQuery() 사용
+  const summaryTextarea = document.getElementById('summary');
+  const summaryContent = summaryTextarea ? summaryTextarea.value.trim() : '';
+  const searchQuery = (summaryContent && summaryContent !== '검색 조건이 없습니다.') 
+    ? summaryContent 
+    : buildSearchQuery();
 
   // 결과 테이블 HTML 생성 (간결/미려 스타일)
   const tableHeaders = ['PMID','Title','Authors','Journal','Date','Abstract'];
