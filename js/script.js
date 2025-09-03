@@ -123,6 +123,16 @@ function updateSummary() {
   const groups = document.querySelectorAll('.keyword-group');
   const parts = [];
 
+  // 현재 summary의 값 확인 - 이미 날짜가 포함되어 있는지 확인
+  const currentSummaryValue = summary.value.trim();
+  const hasExistingDateFilter = currentSummaryValue.includes('[Date - Publication]');
+  
+  // 수동으로 편집된 경우 (사용자가 직접 타이핑한 경우) 업데이트하지 않음
+  if (hasExistingDateFilter && currentSummaryValue !== '검색 조건이 없습니다.') {
+    // 사용자가 수동으로 입력한 쿼리가 있으면 그대로 유지
+    return;
+  }
+
   groups.forEach((group, index) => {
     const input = group.querySelector('input').value.trim();
     const activeBtn = group.querySelector('button.active');
@@ -169,14 +179,18 @@ function getDateFilterText() {
 
   let dateText = '';
   if (startDate && endDate) {
-    // 시작일과 종료일 모두 있는 경우
-    dateText = `("${startDate}"[Date - Publication] : "${endDate}"[Date - Publication])`;
+    // 시작일과 종료일 모두 있는 경우 - PubMed API 올바른 형식
+    const formattedStart = startDate.replace(/-/g, '/');
+    const formattedEnd = endDate.replace(/-/g, '/');
+    dateText = `("${formattedStart}"[Date - Publication] : "${formattedEnd}"[Date - Publication])`;
   } else if (startDate) {
     // 시작일만 있는 경우
-    dateText = `"${startDate}"[Date - Publication] : 3000[Date - Publication]`;
+    const formattedStart = startDate.replace(/-/g, '/');
+    dateText = `("${formattedStart}"[Date - Publication] : "3000/12/31"[Date - Publication])`;
   } else if (endDate) {
     // 종료일만 있는 경우
-    dateText = `1800[Date - Publication] : "${endDate}"[Date - Publication]`;
+    const formattedEnd = endDate.replace(/-/g, '/');
+    dateText = `("1900/01/01"[Date - Publication] : "${formattedEnd}"[Date - Publication])`;
   }
 
   return dateText;
@@ -298,7 +312,18 @@ async function search() {
     searchQuery = buildSearchQuery(); // 키워드 그룹에서 생성
   }
   
-  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(searchQuery)}&retmode=json&retmax=10&api_key=${apiKey}`;
+  // 쿼리 정리 - 중복 제거 및 공백 정리
+  searchQuery = searchQuery.replace(/\s+/g, ' ').trim();
+  
+  // hasabstract를 올바르게 처리
+  if (searchQuery.includes('hasabstract')) {
+    // PubMed API에서 hasabstract[filter]로 변환
+    searchQuery = searchQuery.replace(/\bhasabstract\b/gi, 'hasabstract[filter]');
+  }
+  
+  console.log('최종 검색 쿼리:', searchQuery);
+  
+  const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(searchQuery)}&retmode=json&retmax=500&api_key=${apiKey}`;
 
   try {
     const searchRes = await fetch(searchUrl);
@@ -319,11 +344,162 @@ async function search() {
     const fetchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${ids.join(',')}&retmode=text&rettype=abstract&api_key=${apiKey}`;
     const fetchRes = await fetch(fetchUrl);
     const abstractText = await fetchRes.text();
-    const abstractList = abstractText.split(/\n\n(?=PMID: )/g);
+    
+    // PMID별로 abstract 추출 - 완전히 새로운 접근
+    const abstractMap = {};
+    
+    // 각 PMID 항목을 번호(1., 2., etc)로 분리
+    const entries = abstractText.split(/\n(?=\d+\.\s)/);
+    
+    entries.forEach(entry => {
+      if (!entry.trim()) return;
+      
+      // PMID 찾기
+      const pmidMatch = entry.match(/PMID:\s*(\d+)/);
+      if (!pmidMatch) return;
+      
+      const pmid = pmidMatch[1];
+      
+      // Abstract 추출: 전체 텍스트를 섹션으로 분리
+      // 1. Author information 섹션 찾기
+      const authorInfoIndex = entry.indexOf('Author information:');
+      
+      let abstractText = '';
+      
+      if (authorInfoIndex !== -1) {
+        // Author information이 있는 경우
+        // Author information 섹션 이후의 모든 텍스트를 줄 단위로 처리
+        const afterAuthorInfo = entry.substring(authorInfoIndex);
+        const lines = afterAuthorInfo.split('\n');
+        
+        // Author information 섹션 끝 찾기 - 더 간단한 방법
+        let abstractStartLine = -1;
+        let foundEmptyLine = false;
+        
+        // Author information: 다음 줄부터 시작
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          
+          // 빈 줄을 찾음 (Author info 섹션 끝)
+          if (line === '' && !foundEmptyLine) {
+            foundEmptyLine = true;
+            continue;
+          }
+          
+          // 빈 줄 다음의 첫 번째 비어있지 않은 줄이 abstract 시작
+          if (foundEmptyLine && line !== '') {
+            // 단, 이 줄이 DOI나 저작권 정보가 아니어야 함
+            if (!line.match(/^©/i) && 
+                !line.match(/^DOI:/i) && 
+                !line.match(/^PMCID:/i) && 
+                !line.match(/^PMID:/i)) {
+              abstractStartLine = i;
+              break;
+            }
+          }
+        }
+        
+        if (abstractStartLine !== -1) {
+          // Abstract 텍스트 추출
+          const abstractLines = [];
+          
+          for (let i = abstractStartLine; i < lines.length; i++) {
+            const line = lines[i].trim();
+            
+            // 종료 조건 체크 - 저작권, DOI, PMID 등
+            if (line.match(/^©\s*(19|20)\d{2}/i) ||  // © 2024, © 2022 등 모든 저작권 패턴
+                line.match(/^©\s*\d{4}\.?\s*The Author/i) ||
+                line.match(/^©\s*Author\(s\)/i) ||
+                line.match(/^DOI:\s*/i) ||
+                line.match(/^PMCID:\s*/i) ||
+                line.match(/^PMID:\s*\d+/i) ||
+                line.match(/^Conflict of interest/i) ||
+                line.match(/^SYSTEMATIC REVIEW REGISTRATION:/i)) {
+              break;
+            }
+            
+            // 연속된 빈 줄이 2개 이상이면 종료
+            if (line === '' && i > abstractStartLine && lines[i-1].trim() === '') {
+              break;
+            }
+            
+            // 빈 줄이 아니면 추가
+            if (line) {
+              abstractLines.push(line);
+            }
+          }
+          
+          // 줄들을 공백으로 연결
+          abstractText = abstractLines.join(' ').trim();
+        }
+      } else {
+        // Author information이 없는 경우
+        // 제목과 저자 다음 첫 번째 빈 줄 이후부터 abstract
+        const lines = entry.split('\n');
+        let abstractStart = -1;
+        
+        // 빈 줄 찾기 (제목/저자 이후)
+        for (let i = 3; i < lines.length; i++) {
+          if (lines[i].trim() === '' && lines[i-1].trim() !== '') {
+            // 다음 줄이 대문자로 시작하거나 특정 패턴이면 abstract 시작
+            if (i + 1 < lines.length && lines[i+1].trim() !== '') {
+              abstractStart = i + 1;
+              break;
+            }
+          }
+        }
+        
+        if (abstractStart !== -1) {
+          const abstractLines = [];
+          for (let i = abstractStart; i < lines.length; i++) {
+            const line = lines[i].trim();
+            
+            // 종료 조건 - 더 정확한 패턴 매칭
+            // DOI, PMCID, PMID 라인
+            if (line.startsWith('DOI:') ||
+                line.startsWith('PMCID:') ||
+                line.startsWith('PMID:') ||
+                line.startsWith('Conflict of interest')) {
+              break;
+            }
+            
+            // 저작권 정보 패턴 - 더 포괄적으로 매칭
+            if (line.match(/^©\s*(19|20)\d{2}/i) ||  // © 2024 형태
+                line.match(/^©\s*\d{4}[\.,]\s*/i) ||  // © 2022. 또는 © 2022, 형태
+                line.match(/^©\s*Author\(s\)/i) ||  // © Author(s) 형태
+                line.match(/^Copyright\s*©?\s*(19|20)\d{2}/i) ||  // Copyright © 2022 형태
+                line.match(/^\d{4}[\.,]\s*(The Author\(s\)|Elsevier|Wiley|Springer|Oxford|BMJ|National Center)/i)) {
+              break;
+            }
+            
+            // 빈 줄이 2개 이상 연속으로 나오면 종료
+            if (line === '' && i > abstractStart + 1 && lines[i-1].trim() === '') {
+              break;
+            }
+            
+            if (line) {
+              abstractLines.push(line);
+            }
+          }
+          
+          abstractText = abstractLines.join(' ');
+        }
+      }
+      
+      // 정리 및 저장
+      if (abstractText) {
+        // 여러 공백을 하나로 정리
+        abstractText = abstractText.replace(/\s+/g, ' ').trim();
+        // 줄바꿈 제거
+        abstractText = abstractText.replace(/\n/g, ' ');
+        
+        abstractMap[pmid] = abstractText;
+      }
+    });
 
     const resultList = ids.map((id, index) => {
       const item = summaryData.result[id];
-      const abstract = abstractList[index] || '';
+      const abstract = abstractMap[id] || ''; // PMID로 매칭
       return {
         pmid: id,
         title: item.title || '제목 없음',
@@ -333,18 +509,27 @@ async function search() {
         abstract: abstract
       };
     }).filter(result => {
-      // Abstract가 없거나 '초록 없음' 또는 빈 문자열인 경우 필터링
-      const hasValidAbstract = result.abstract && 
-        result.abstract.trim() !== '' && 
-        result.abstract !== '초록 없음' &&
-        !result.abstract.includes('Abstract not available') &&
-        result.abstract.toLowerCase() !== 'no abstract available';
-      return hasValidAbstract;
+      // hasabstract나 NOT hasabstract가 포함된 경우 API에서 이미 필터링되므로
+      // 클라이언트에서 추가 필터링하지 않음
+      if (searchQuery.includes('hasabstract')) {
+        return true; // API가 이미 올바른 결과를 반환했으므로 모든 결과 통과
+      } else {
+        // hasabstract 필터가 없는 일반 검색의 경우만 클라이언트에서 필터링
+        const hasValidAbstract = result.abstract && 
+          result.abstract.trim() !== '' && 
+          result.abstract !== '초록 없음' &&
+          !result.abstract.includes('Abstract not available') &&
+          result.abstract.toLowerCase() !== 'no abstract available';
+        return hasValidAbstract;
+      }
     });
 
-    // Abstract가 있는 결과가 없을 경우 처리
+    // 필터링된 결과가 없을 경우 처리
     if (resultList.length === 0) {
-      resultsEl.innerHTML = `<p>🔎 Abstract가 있는 검색 결과가 없습니다.</p>`;
+      const filterMessage = searchQuery.includes('NOT hasabstract') ? 
+        'Abstract가 없는 검색 결과가 없습니다.' : 
+        'Abstract가 있는 검색 결과가 없습니다.';
+      resultsEl.innerHTML = `<p>🔎 ${filterMessage}</p>`;
       currentSearchResults = [];
       updateSaveButtons(false);
       return;
@@ -401,8 +586,20 @@ async function search() {
 
     ensureAbstractModal();
   } catch (error) {
-    console.error(error);
-    resultsEl.innerHTML = `<p style="color: red;">❌ 검색 중 오류가 발생했습니다.</p>`;
+    console.error('검색 오류:', error);
+    let errorMessage = '❌ 검색 중 오류가 발생했습니다.';
+    
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      errorMessage += '<br>네트워크 연결을 확인해주세요.';
+    } else if (error.message.includes('timeout')) {
+      errorMessage += '<br>검색 시간이 초과되었습니다. 검색 조건을 좁혀보세요.';
+    } else {
+      errorMessage += `<br>오류 상세: ${error.message}`;
+    }
+    
+    resultsEl.innerHTML = `<p style="color: red;">${errorMessage}</p>`;
+    currentSearchResults = [];
+    updateSaveButtons(false);
   }
 }
 
@@ -460,18 +657,18 @@ function buildSearchQuery() {
       let dateQuery = '';
       
       if (startDate && endDate) {
-        // 범위 검색: YYYY/MM/DD 형식으로 변환
+        // 범위 검색: YYYY/MM/DD 형식으로 변환 - PubMed API 올바른 형식
         const startFormatted = startDate.replace(/-/g, '/');
         const endFormatted = endDate.replace(/-/g, '/');
         dateQuery = `("${startFormatted}"[Date - Publication] : "${endFormatted}"[Date - Publication])`;
       } else if (startDate) {
         // 시작일 이후
         const startFormatted = startDate.replace(/-/g, '/');
-        dateQuery = `"${startFormatted}"[Date - Publication] : 3000[Date - Publication]`;
+        dateQuery = `("${startFormatted}"[Date - Publication] : "3000/12/31"[Date - Publication])`;
       } else if (endDate) {
         // 종료일 이전
         const endFormatted = endDate.replace(/-/g, '/');
-        dateQuery = `1800[Date - Publication] : "${endFormatted}"[Date - Publication]`;
+        dateQuery = `("1900/01/01"[Date - Publication] : "${endFormatted}"[Date - Publication])`;
       }
 
       if (dateQuery) {
@@ -737,8 +934,8 @@ function parseSummaryAndCreateGroups(text) {
   
   // 미리보기 텍스트박스에 원본 텍스트 설정 (중복 방지)
   const summaryElement = document.getElementById('summary');
-  if (summaryElement) {
-    summaryElement.value = text; // 원본 텍스트 그대로 유지
+  if (summaryElement && summaryElement.value.trim() === '') {
+    summaryElement.value = text; // 빈 경우에만 원본 텍스트 설정
   }
   
   // 마지막에 빈 그룹 하나 추가 (updateSummary 호출 안 함)
@@ -1640,4 +1837,257 @@ function calculatePerformanceGrade(timeMs, complexityScore) {
   }
   
   return { grade, speed };
+}
+
+// 단위 테스트 모달 관련 함수들
+function openUnitTestModal() {
+  const modal = document.getElementById('unit-test-modal');
+  if (modal) {
+    modal.classList.add('active');
+    // 모달 바깥 클릭 시 닫기 이벤트 추가 (한 번만 실행되도록)
+    if (!modal.hasClickOutsideListener) {
+      modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+          closeUnitTestModal();
+        }
+      });
+      modal.hasClickOutsideListener = true;
+    }
+  }
+}
+
+function closeUnitTestModal() {
+  const modal = document.getElementById('unit-test-modal');
+  if (modal) {
+    modal.classList.remove('active');
+  }
+}
+
+
+async function runUnitTest() {
+  const input = document.getElementById('test-pmid-input');
+  const resultsDiv = document.getElementById('unit-test-results');
+  
+  if (!input || !resultsDiv) return;
+  
+  const pmidText = input.value.trim();
+  if (!pmidText) {
+    alert('PMID를 입력해주세요.');
+    return;
+  }
+  
+  // PMID를 쉼표로 분리
+  const pmids = pmidText.split(',').map(p => p.trim()).filter(p => p);
+  
+  resultsDiv.innerHTML = '<p style="text-align: center;">테스트 실행 중...</p>';
+  
+  let html = '';
+  
+  for (const pmid of pmids) {
+    html += `<h3 style="color: #333; margin-top: 20px;">PMID: ${pmid}</h3>`;
+    
+    // 1. esearch API 테스트
+    try {
+      const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${pmid}[pmid]&retmode=json`;
+      const searchResponse = await fetch(searchUrl);
+      const searchData = await searchResponse.json();
+      
+      html += `
+        <div class="api-result-section">
+          <div class="api-result-header">
+            <span>1. esearch API (검색)</span>
+            <span class="api-status success">SUCCESS</span>
+          </div>
+          <div class="api-result-body">
+            <pre>${JSON.stringify(searchData, null, 2)}</pre>
+          </div>
+        </div>
+      `;
+    } catch (error) {
+      html += `
+        <div class="api-result-section">
+          <div class="api-result-header">
+            <span>1. esearch API (검색)</span>
+            <span class="api-status error">ERROR</span>
+          </div>
+          <div class="api-result-body">
+            <pre>Error: ${error.message}</pre>
+          </div>
+        </div>
+      `;
+    }
+    
+    // 2. esummary API 테스트
+    try {
+      const summaryUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${pmid}&retmode=json`;
+      const summaryResponse = await fetch(summaryUrl);
+      const summaryData = await summaryResponse.json();
+      
+      html += `
+        <div class="api-result-section">
+          <div class="api-result-header">
+            <span>2. esummary API (요약)</span>
+            <span class="api-status success">SUCCESS</span>
+          </div>
+          <div class="api-result-body">
+            <pre>${JSON.stringify(summaryData, null, 2)}</pre>
+          </div>
+        </div>
+      `;
+    } catch (error) {
+      html += `
+        <div class="api-result-section">
+          <div class="api-result-header">
+            <span>2. esummary API (요약)</span>
+            <span class="api-status error">ERROR</span>
+          </div>
+          <div class="api-result-body">
+            <pre>Error: ${error.message}</pre>
+          </div>
+        </div>
+      `;
+    }
+    
+    // 3. efetch API 테스트 (초록 텍스트)
+    try {
+      const fetchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${pmid}&rettype=abstract&retmode=text`;
+      const fetchResponse = await fetch(fetchUrl);
+      const fetchText = await fetchResponse.text();
+      
+      // 초록 파싱 테스트
+      const abstractParsed = parseAbstractFromResponse(fetchText, pmid);
+      
+      html += `
+        <div class="api-result-section">
+          <div class="api-result-header">
+            <span>3. efetch API (초록)</span>
+            <span class="api-status success">SUCCESS</span>
+          </div>
+          <div class="api-result-body">
+            <h4>원본 응답:</h4>
+            <pre>${fetchText}</pre>
+            <h4 style="margin-top: 15px; color: #2196f3;">파싱된 초록 (${abstractParsed.length}자):</h4>
+            <pre style="background: #e3f2fd; padding: 10px; border-radius: 5px;">${abstractParsed || '초록을 찾을 수 없습니다.'}</pre>
+          </div>
+        </div>
+      `;
+    } catch (error) {
+      html += `
+        <div class="api-result-section">
+          <div class="api-result-header">
+            <span>3. efetch API (초록)</span>
+            <span class="api-status error">ERROR</span>
+          </div>
+          <div class="api-result-body">
+            <pre>Error: ${error.message}</pre>
+          </div>
+        </div>
+      `;
+    }
+  }
+  
+  resultsDiv.innerHTML = html;
+}
+
+// 초록 파싱 함수 (테스트용) - 개선된 버전
+function parseAbstractFromResponse(text, pmid) {
+  const authorInfoIndex = text.indexOf('Author information:');
+  
+  if (authorInfoIndex !== -1) {
+    // Author information이 있는 경우 - 기존 로직 사용
+    const afterAuthorInfo = text.substring(authorInfoIndex);
+    const lines = afterAuthorInfo.split('\n');
+    
+    // Author information 다음 첫 번째 빈 줄 이후에서 초록 찾기
+    let abstractStartLine = -1;
+    let foundEmptyLine = false;
+    
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      if (line === '' && !foundEmptyLine) {
+        foundEmptyLine = true;
+        continue;
+      }
+      
+      if (foundEmptyLine && line !== '') {
+        // BACKGROUND:, AIM: 등으로 시작하거나 의미있는 초록 내용인지 확인
+        if (line.match(/^(BACKGROUND|AIM|OBJECTIVE|PURPOSE|METHODS|RESULTS|CONCLUSION):/i) ||
+            (line.length > 50 && !line.match(/^©/i) && !line.match(/^DOI:/i) && !line.match(/^PMID:/i))) {
+          abstractStartLine = i;
+          break;
+        }
+      }
+    }
+    
+    if (abstractStartLine !== -1) {
+      const abstractLines = [];
+      
+      for (let i = abstractStartLine; i < lines.length; i++) {
+        const line = lines[i].trim();
+        
+        // 종료 조건들
+        if (line.match(/^©\s*(19|20)\d{2}/i) ||
+            line.match(/^©\s*\d{4}\.?\s*The Author/i) ||
+            line.match(/^©\s*Author\(s\)/i) ||
+            line.match(/^DOI:\s*/i) ||
+            line.match(/^PMCID:\s*/i) ||
+            line.match(/^PMID:\s*\d+/i) ||
+            line.match(/^Conflict of interest/i) ||
+            line.match(/^SYSTEMATIC REVIEW REGISTRATION:/i) ||
+            line.match(/^Competing interests:/i) ||
+            line.match(/^Keywords:/i) ||
+            line.match(/^\[Indexed for MEDLINE\]/i)) {
+          break;
+        }
+        
+        if (line) {
+          abstractLines.push(line);
+        }
+      }
+      
+      return abstractLines.join(' ').trim();
+    }
+  }
+  
+  // Author information이 없는 경우 - 폴백 로직
+  return fallbackAbstractParsing(text);
+}
+
+// 폴백 초록 파싱 함수
+function fallbackAbstractParsing(text) {
+  const lines = text.split('\n');
+  const abstractLines = [];
+  let foundMeaningfulContent = false;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    // 빈 줄이면 스킵
+    if (!line) continue;
+    
+    // 헤더 정보 스킵 (첫 몇 줄)
+    if (i < 3) continue;
+    
+    // 종료 조건
+    if (line.match(/^©\s*(19|20)\d{2}/i) ||
+        line.match(/^©\s*Author/i) ||
+        line.match(/^DOI:/i) ||
+        line.match(/^PMID:/i) ||
+        line.match(/^PMCID:/i)) {
+      break;
+    }
+    
+    // 의미있는 내용 시작 (보통 배경이나 목적부터)
+    if (line.match(/^(BACKGROUND|AIM|OBJECTIVE|PURPOSE|INTRODUCTION):/i) || 
+        (!foundMeaningfulContent && line.length > 50)) {
+      foundMeaningfulContent = true;
+    }
+    
+    if (foundMeaningfulContent) {
+      abstractLines.push(line);
+    }
+  }
+  
+  return abstractLines.join(' ').trim();
 }

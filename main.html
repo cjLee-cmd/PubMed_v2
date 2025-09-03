@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Acuzenic - AI Pharmacovigilance</title>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/style.css?v=20250902b" />
+  <link rel="stylesheet" href="./css/style.css?v=20250903i" />
 </head>
 <body>
   <header>
@@ -65,6 +65,7 @@
         <div class="results-header">
           <h2>검색 결과</h2>
           <div class="results-controls">
+            <button class="unit-test-btn" title="단위 테스트" onclick="openUnitTestModal()">🧪 단위테스트</button>
             <button class="save-json-btn" title="JSON으로 저장" disabled>📄 JSON</button>
             <button class="save-excel-btn" title="Excel로 저장" disabled>📊 Excel</button>
             <button class="save-pdf-btn" title="PDF로 저장" disabled>🖨️ PDF</button>
@@ -143,5 +144,28 @@
   <script src="./js/script.js?v=20250823b"></script>
   <script src="./js/query-manager.js"></script>
   <script src="./js/main-auth.js?v=20250823b"></script>
+
+  <!-- 단위 테스트 모달 -->
+  <div id="unit-test-modal" class="unit-test-modal">
+    <div class="unit-test-content">
+      <div class="unit-test-header">
+        <h2>PubMed API 단위 테스트</h2>
+        <button class="unit-test-close" onclick="closeUnitTestModal()">✖ 닫기</button>
+      </div>
+      
+      <div class="unit-test-input-section">
+        <input type="text" 
+               class="unit-test-input" 
+               id="test-pmid-input" 
+               placeholder="PMID 입력 (예: 36402978 또는 36402978,34493490)"
+               value="36402978,34493490,33706664">
+        <button class="unit-test-run-btn" onclick="runUnitTest()">테스트 실행</button>
+      </div>
+      
+      <div class="unit-test-results" id="unit-test-results">
+        <!-- 테스트 결과가 여기에 표시됩니다 -->
+      </div>
+    </div>
+  </div>
 </body>
 </html>
